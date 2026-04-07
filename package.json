@@ -1,6 +1,15 @@
 {
-  "name": "tai-xiu-api",
-  "version": "1.0.0",
-  "scripts": { "start": "node server.js" },
-  "dependencies": { "express": "^4.18.2" }
+  "name": "tai-xiu-predictor",
+  "version": "2.0.0",
+  "description": "Tài Xỉu Predictor - Đầy đủ thuật toán, lưu 230 phiên",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
 }
