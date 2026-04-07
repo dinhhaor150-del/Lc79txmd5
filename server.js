@@ -100,14 +100,13 @@ function updateHistoryResults() {
     if (changed) saveHistory();
 }
 
-// ==================== THUẬT TOÁN MỚI - TỐI ƯU ====================
+// ==================== THUẬT TOÁN ====================
 function analyzeAlgorithm(data, prev) {
     const totalMoney = data.taiAmount + data.xiuAmount;
     if (totalMoney === 0) {
-        return { verdict: 'hold', confidence: 30, reason: 'Chưa có dữ liệu', inflowPct: 0.5 };
+        return { verdict: 'hold', confidence: 30, reason: 'Chưa có dữ liệu', inflowPct: 0.5, inflowStrength: 0 };
     }
     
-    // Tính dòng tiền mới đổ vào
     let taiInflow = 0.5;
     let inflowStrength = 0;
     
@@ -136,9 +135,7 @@ function analyzeAlgorithm(data, prev) {
     let confidence = 35;
     let reason = '';
     
-    // ========== QUY TẮC MỚI: ƯU TIÊN DÒNG TIỀN THỰC ==========
-    
-    // 1. Dòng tiền mới quá mạnh (>85% đổ 1 cửa) - SIÊU TÍN HIỆU
+    // 1. Siêu tín hiệu >85%
     if (taiInflow > 0.85 && inflowStrength > 0.05) {
         verdict = 'xiu';
         confidence = 85 + Math.min(10, (taiInflow - 0.85) * 100);
@@ -149,8 +146,7 @@ function analyzeAlgorithm(data, prev) {
         confidence = 85 + Math.min(10, (xiuInflow - 0.85) * 100);
         reason = `💎 SIÊU TÍN HIỆU: ${(xiuInflow*100).toFixed(0)}% dòng mới đổ XỈU → TÀI`;
     }
-    
-    // 2. Dòng tiền mới rõ ràng (>70%) - TÍN HIỆU MẠNH
+    // 2. Tín hiệu mạnh >70%
     else if (taiInflow > 0.70) {
         verdict = 'xiu';
         confidence = 72 + (taiInflow - 0.70) * 60;
@@ -161,8 +157,7 @@ function analyzeAlgorithm(data, prev) {
         confidence = 72 + (xiuInflow - 0.70) * 60;
         reason = `📊 ${(xiuInflow*100).toFixed(0)}% dòng mới đổ XỈU → TÀI`;
     }
-    
-    // 3. Chênh lệch tổng tiền lớn (>20%)
+    // 3. Chênh lệch tổng tiền >20%
     else if (imbalance > 0.20) {
         if (currentTaiRatio > 0.60) {
             verdict = 'xiu';
@@ -178,8 +173,6 @@ function analyzeAlgorithm(data, prev) {
             reason = `⏳ Chênh lệch ${(imbalance*100).toFixed(0)}% - chưa đủ rõ`;
         }
     }
-    
-    // 4. Không đủ tín hiệu
     else {
         verdict = 'hold';
         confidence = 35;
@@ -235,7 +228,6 @@ async function fetchBetData() {
         if (!isLocked && currentBetData) {
             const raw = analyzeAlgorithm(currentBetData, prevBetData);
             
-            // Bộ lọc - cần 5 mẫu liên tiếp cùng hướng mới chốt
             rawVerdictsBuffer.push({ 
                 verdict: raw.verdict, 
                 confidence: raw.confidence, 
@@ -248,14 +240,14 @@ async function fetchBetData() {
             let finalConfidence = raw.confidence;
             let finalReason = raw.reason;
             
-            // SIÊU TÍN HIỆU: inflow >85% - chốt ngay không cần lọc
+            // Siêu tín hiệu: chốt ngay
             if (raw.inflowPct > 0.85 && raw.inflowStrength > 0.05 && raw.verdict !== 'hold') {
                 finalVerdict = raw.verdict;
                 finalConfidence = Math.min(94, raw.confidence + 5);
                 finalReason = `🔥 ${finalReason}`;
                 console.log(`⚡ Siêu tín hiệu! Chốt ngay: ${finalVerdict}`);
             }
-            // Lọc thường: cần 5/5 mẫu cùng hướng
+            // Lọc thường: cần 5 mẫu cùng hướng
             else {
                 const last5 = rawVerdictsBuffer.slice(-5);
                 if (last5.length === 5 && last5.every(v => v.verdict === last5[0].verdict && v.verdict !== 'hold')) {
@@ -264,9 +256,9 @@ async function fetchBetData() {
                     finalReason = `🔒 XÁC NHẬN 5s: ${finalVerdict === 'tai' ? 'XỈU' : 'TÀI'}`;
                     console.log(`✅ Đủ 5 mẫu cùng hướng: ${finalVerdict}`);
                 }
-                // Chưa đủ 5 mẫu - giữ nguyên nhưng không chốt
                 else if (raw.verdict !== 'hold') {
-                    finalReason = `${raw.reason} (đang xác nhận... cần ${5 - rawVerdictsBuffer.filter(v => v.verdict === raw.verdict).length}/5)`;
+                    const sameCount = rawVerdictsBuffer.filter(v => v.verdict === raw.verdict).length;
+                    finalReason = `${raw.reason} (đang xác nhận... cần ${5 - sameCount}/5)`;
                 }
             }
             
@@ -277,7 +269,6 @@ async function fetchBetData() {
                 timestamp: Date.now()
             };
             
-            // Chốt nếu đủ điều kiện
             if (finalVerdict !== 'hold' && finalConfidence >= 65 && !isLocked) {
                 if (lockPrediction(currentSessionId, finalVerdict, finalConfidence, finalReason)) {
                     isLocked = true;
@@ -286,7 +277,6 @@ async function fetchBetData() {
             }
         }
         
-        // Đếm ngược
         if (!isLocked && countdown > 0) {
             countdown--;
             if (countdown === 0 && !isLocked && currentBetData) {
@@ -309,28 +299,41 @@ async function fetchBetData() {
     }
 }
 
-// ==================== API ====================
-app.get('/api/predict', (req, res) => {
-    const stats = {
-        total: history.length,
-        correct: history.filter(h => h.correct === true).length,
-        wrong: history.filter(h => h.correct === false).length,
-        ratio: 0,
-        bestStreak: 0
-    };
+// ==================== TÍNH TOÁN THỐNG KÊ ====================
+function calculateStats() {
+    const total = history.length;
+    const correct = history.filter(h => h.correct === true).length;
+    const wrong = history.filter(h => h.correct === false).length;
+    const ratio = total > 0 ? (correct / total * 100).toFixed(1) : 0;
     
-    if (stats.total > 0) {
-        stats.ratio = (stats.correct / stats.total * 100).toFixed(1);
-        let currentStreak = 0;
-        for (let h of history) {
-            if (h.correct === true) {
-                currentStreak++;
-                stats.bestStreak = Math.max(stats.bestStreak, currentStreak);
-            } else {
-                currentStreak = 0;
-            }
+    // Chuỗi đúng dài nhất
+    let bestWinStreak = 0;
+    let currentWinStreak = 0;
+    // Chuỗi sai dài nhất
+    let bestLoseStreak = 0;
+    let currentLoseStreak = 0;
+    
+    for (let h of history) {
+        if (h.correct === true) {
+            currentWinStreak++;
+            currentLoseStreak = 0;
+            bestWinStreak = Math.max(bestWinStreak, currentWinStreak);
+        } else if (h.correct === false) {
+            currentLoseStreak++;
+            currentWinStreak = 0;
+            bestLoseStreak = Math.max(bestLoseStreak, currentLoseStreak);
+        } else {
+            currentWinStreak = 0;
+            currentLoseStreak = 0;
         }
     }
+    
+    return { total, correct, wrong, ratio, bestWinStreak, bestLoseStreak };
+}
+
+// ==================== API ====================
+app.get('/api/predict', (req, res) => {
+    const stats = calculateStats();
     
     res.json({
         success: true,
@@ -342,7 +345,7 @@ app.get('/api/predict', (req, res) => {
             isLocked: isLocked,
             sessionId: currentSessionId
         },
-        history: history.slice(0, 50),
+        history: history.slice(0, 230),  // 🔥 GỬI ĐỦ 230 PHIÊN
         statistics: stats,
         recentVerdicts: rawVerdictsBuffer.slice(-5).map(v => v.verdict)
     });
@@ -384,7 +387,8 @@ app.post('/api/reset-stats', (req, res) => {
 // ==================== KHỞI ĐỘNG ====================
 app.listen(PORT, () => {
     console.log('🚀 Server chạy trên port', PORT);
-    console.log('✅ Thuật toán mới: lọc 5s, siêu tín hiệu >85%');
+    console.log('✅ Lưu tối đa 230 phiên, gửi đủ 230 phiên');
+    console.log('✅ Thống kê: chuỗi đúng dài nhất & chuỗi sai dài nhất');
     loadHistory();
     fetchResults();
     fetchBetData();
